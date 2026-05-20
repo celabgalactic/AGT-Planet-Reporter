@@ -6,6 +6,15 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Expose local file assets directly
+  app.get(["/geonms-font.ttf", "/src/geonms-font.ttf"], (req, res) => {
+    res.sendFile(path.join(process.cwd(), "geonms-font.ttf"));
+  });
+
+  app.get(["/AGTicon.png", "/AGTIcon.png", "/src/AGTicon.png", "/src/AGTIcon.png"], (req, res) => {
+    res.sendFile(path.join(process.cwd(), "AGTicon.png"));
+  });
+
   // Proxy route for Google Drive assets to bypass CORS
   app.get("/api/asset-proxy", async (req, res) => {
     const fileId = req.query.id as string;

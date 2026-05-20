@@ -85,6 +85,7 @@ const getDisplayValue = (val: any, colIdx?: number) => {
 
 export default function App() {
   const [reportType, setReportType] = useState<ReportType>('simple');
+  const [logoSrc, setLogoSrc] = useState<string>('/AGTicon.png');
   const [planetCategory, setPlanetCategory] = useState<PlanetCategory>('all');
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
     const saved = localStorage.getItem('sheet_reporter_url');
@@ -158,7 +159,10 @@ export default function App() {
   };
 
   const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 10;
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('agt_page_size');
+    return saved ? parseInt(saved, 10) : 15;
+  });
 
   const [searchKey, setSearchKey] = useState('');
   const [selectedGalaxy, setSelectedGalaxy] = useState('All');
@@ -405,11 +409,14 @@ export default function App() {
   };
 
   const paginatedRecords = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return matchedRecords.slice(start, start + PAGE_SIZE);
-  }, [matchedRecords, currentPage]);
+    if (matchedRecords.length <= 15) {
+      return matchedRecords;
+    }
+    const start = (currentPage - 1) * pageSize;
+    return matchedRecords.slice(start, start + pageSize);
+  }, [matchedRecords, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(matchedRecords.length / PAGE_SIZE);
+  const totalPages = Math.ceil(matchedRecords.length / pageSize);
 
   const getVisiblePages = () => {
     const pages: (number | string)[] = [];
@@ -457,6 +464,30 @@ export default function App() {
     doc.text(`Extraction Ref: ${searchKey || 'All'} / ${selectedGalaxy} / ${selectedRegion} / ${planetCategory.toUpperCase()}${planetCategory === 'biome' ? ` (${selectedBiome})` : ''}`, 20, 30);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 35);
     doc.text(`Result Count: ${matchedRecords.length} Verified Entries`, 20, 40);
+
+    // Embed AGT Logo on page 1, right of the report summary introduction text
+    const logoImg = document.querySelector('img[alt="AGT Logo"]') as HTMLImageElement;
+    if (logoImg) {
+      try {
+        if (logoImg.complete && logoImg.naturalWidth > 0) {
+          doc.addImage(logoImg, 'PNG', 248, 15, 25, 25, undefined, 'FAST');
+        } else {
+          const tempImg = new Image();
+          tempImg.src = logoSrc;
+          doc.addImage(tempImg, 'PNG', 248, 15, 25, 25, undefined, 'FAST');
+        }
+      } catch (err) {
+        console.error('Failed to add logo image to PDF:', err);
+      }
+    } else {
+      try {
+        const tempImg = new Image();
+        tempImg.src = logoSrc;
+        doc.addImage(tempImg, 'PNG', 248, 15, 25, 25, undefined, 'FAST');
+      } catch (err) {
+        console.error('Failed to add fallback logo image to PDF:', err);
+      }
+    }
     
     const activeCols = columns.filter(col => col.enabled);
     const urlMap = new Map<string, string>();
@@ -564,14 +595,18 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <img 
-              src="/api/asset-proxy?id=1h9HvAGeru6Vo7PiWdLbXmGogD8TySnnz" 
+              src={logoSrc} 
               alt="AGT Logo" 
               className="w-10 h-10 object-contain opacity-90"
               onError={(e) => {
                 const img = e.target as HTMLImageElement;
-                img.style.display = 'none';
-                if (!img.parentElement?.querySelector('.agt-fallback')) {
-                  img.parentElement?.insertAdjacentHTML('afterbegin', '<div class="agt-fallback w-10 h-10 border border-agt-orange rounded-sm flex items-center justify-center shrink-0"><span class="text-agt-orange font-bold text-[10px] tracking-tighter">AGT</span></div>');
+                if (logoSrc === "/AGTicon.png" || logoSrc === "/AGTIcon.png") {
+                  setLogoSrc("/api/asset-proxy?id=1h9HvAGeru6Vo7PiWdLbXmGogD8TySnnz");
+                } else {
+                  img.style.display = 'none';
+                  if (!img.parentElement?.querySelector('.agt-fallback')) {
+                    img.parentElement?.insertAdjacentHTML('afterbegin', '<div class="agt-fallback w-10 h-10 border border-agt-orange rounded-sm flex items-center justify-center shrink-0"><span class="text-agt-orange font-bold text-[10px] tracking-tighter">AGT</span></div>');
+                  }
                 }
               }}
             />
@@ -864,6 +899,36 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Records Display Limit Section */}
+                    <div className="space-y-4">
+                      <h3 className="text-[10px] uppercase tracking-widest font-bold text-agt-orange flex items-center gap-2">
+                        <Table className="w-3 h-3" />
+                        Records Display Limit
+                      </h3>
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-agt-orange uppercase tracking-wider">Configure default rows per page</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[15, 30, 50, 100].map(size => (
+                            <button
+                              key={size}
+                              onClick={() => {
+                                setPageSize(size);
+                                localStorage.setItem('agt_page_size', String(size));
+                                setCurrentPage(1);
+                              }}
+                              className={`px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-widest border rounded-xl transition-all ${
+                                pageSize === size
+                                  ? 'bg-agt-orange text-black border-agt-orange shadow-[0_0_10px_rgba(255,180,81,0.3)]'
+                                  : 'text-agt-orange border-agt-orange/20 hover:bg-agt-orange/10'
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Audio Section */}
                     <div className="col-span-1 md:col-span-2 pt-8 border-t border-white/5 space-y-4">
                       <div className="flex items-center justify-between">
@@ -973,44 +1038,76 @@ export default function App() {
                       </table>
                     </div>
 
-                    {totalPages > 1 && (
-                      <div className="p-4 border-t border-agt-orange/5 flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                          className="px-3 py-1 border border-agt-orange/20 rounded-md text-[10px] uppercase tracking-widest font-bold text-agt-orange hover:bg-agt-orange/10 disabled:opacity-20 transition-colors"
-                        >
-                          Prev
-                        </button>
-                        <div className="flex gap-1 overflow-x-auto no-scrollbar">
-                          {getVisiblePages().map((page, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => {
-                                if (typeof page === 'number') {
-                                  setCurrentPage(page);
-                                }
-                              }}
-                              disabled={typeof page !== 'number'}
-                              className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md text-[10px] font-mono border transition-all ${
-                                typeof page !== 'number'
-                                  ? 'text-agt-orange/40 border-none pointer-events-none'
-                                  : currentPage === page
-                                    ? 'bg-agt-orange text-black border-agt-orange shadow-[0_0_10px_rgba(255,180,81,0.3)]'
-                                    : 'text-agt-orange border-agt-orange/20 hover:bg-agt-orange/10'
-                              }`}
-                            >
-                              {page}
-                            </button>
-                          ))}
+                    {/* Glowing Navigation Bar right below the table */}
+                    {matchedRecords.length > 15 && (
+                      <div className="p-5 border-t border-agt-orange/20 flex flex-col md:flex-row items-center justify-between gap-4 bg-black/60 shadow-[0_0_20px_rgba(255,180,81,0.08)]">
+                        {/* Page Range Display on the left */}
+                        <div className="text-[10px] md:text-xs uppercase tracking-[0.15em] font-bold text-agt-orange font-mono">
+                          Showing Page <span className="text-white font-extrabold">{currentPage}</span> of <span className="text-white font-extrabold">{totalPages}</span> <span className="text-agt-orange/50">({matchedRecords.length} total rows)</span>
                         </div>
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          disabled={currentPage === totalPages}
-                          className="px-3 py-1 border border-agt-orange/20 rounded-md text-[10px] uppercase tracking-widest font-bold text-agt-orange hover:bg-agt-orange/10 disabled:opacity-20 transition-colors"
-                        >
-                          Next
-                        </button>
+
+                        {/* Responsive Controls on the right */}
+                        <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+                          {/* First Button */}
+                          <button
+                            onClick={() => setCurrentPage(1)}
+                            disabled={currentPage === 1}
+                            className="px-3 py-2 border border-agt-orange/20 rounded-xl text-[9px] uppercase tracking-[0.2em] font-black text-agt-orange hover:bg-agt-orange/15 hover:border-agt-orange/40 disabled:opacity-20 disabled:pointer-events-none transition-all active:scale-[0.97]"
+                          >
+                            First
+                          </button>
+
+                          {/* Prev Button */}
+                          <button
+                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentPage === 1}
+                            className="px-3 py-2 border border-agt-orange/20 rounded-xl text-[9px] uppercase tracking-[0.2em] font-black text-agt-orange hover:bg-agt-orange/15 hover:border-agt-orange/40 disabled:opacity-20 disabled:pointer-events-none transition-all active:scale-[0.97]"
+                          >
+                            Prev
+                          </button>
+
+                          {/* Page Numbers with Radius = 2 */}
+                          <div className="flex items-center gap-1">
+                            {getVisiblePages().map((page, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => {
+                                  if (typeof page === 'number') {
+                                    setCurrentPage(page);
+                                  }
+                                }}
+                                disabled={typeof page !== 'number'}
+                                className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl text-[10px] font-mono font-bold transition-all border ${
+                                  typeof page !== 'number'
+                                    ? 'text-agt-orange/40 border-transparent pointer-events-none'
+                                    : currentPage === page
+                                      ? 'bg-agt-orange text-black border-agt-orange shadow-[0_0_15px_rgba(255,180,81,0.85)] font-black'
+                                      : 'text-agt-orange border-agt-orange/10 hover:bg-agt-orange/10 hover:border-agt-orange/30'
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Next Button */}
+                          <button
+                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentPage === totalPages}
+                            className="px-3 py-2 border border-agt-orange/20 rounded-xl text-[9px] uppercase tracking-[0.2em] font-black text-agt-orange hover:bg-agt-orange/15 hover:border-agt-orange/40 disabled:opacity-20 disabled:pointer-events-none transition-all active:scale-[0.97]"
+                          >
+                            Next
+                          </button>
+
+                          {/* Last Button */}
+                          <button
+                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={currentPage === totalPages}
+                            className="px-3 py-2 border border-agt-orange/20 rounded-xl text-[9px] uppercase tracking-[0.2em] font-black text-agt-orange hover:bg-agt-orange/15 hover:border-agt-orange/40 disabled:opacity-20 disabled:pointer-events-none transition-all active:scale-[0.97]"
+                          >
+                            Last
+                          </button>
+                        </div>
                       </div>
                     )}
 
