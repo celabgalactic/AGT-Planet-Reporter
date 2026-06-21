@@ -964,7 +964,7 @@ const checkIfColumnsFitLandscape = (
     for (const record of sampleRecords) {
       const displayVal = getDisplayValue(record[col.name], col.rawIndex);
       const isUrl = String(displayVal).toLowerCase().startsWith("http");
-      const isTargetCol = [89, 90, 91, 92, 115, 116, 117, 118].includes(col.rawIndex || -1);
+      const isTargetCol = [88, 89, 90, 91, 92, 114, 115, 116, 117, 118].includes(col.rawIndex || -1);
       const cellLen = (isUrl && isTargetCol) ? 4 : String(displayVal || '').length;
       if (cellLen > maxCellCharCount) {
         maxCellCharCount = cellLen;
@@ -1100,9 +1100,39 @@ export default function App() {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem('agt_audio_enabled');
-    return saved === null ? true : saved === 'true';
+    // Check if the cookie for preference exists first
+    const cookiePref = getCookie("agt_audio_enabled_pref");
+    if (cookiePref !== "") {
+      return cookiePref === "true";
+    }
+
+    // No cookie pref exists yet. Let's see if the user is a public user.
+    const verifyCookie = getCookie("agt_verify_info");
+    let hasVerifiedUser = false;
+    if (verifyCookie) {
+      try {
+        const parsed = JSON.parse(verifyCookie);
+        if (parsed.name && parsed.id) {
+          hasVerifiedUser = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!hasVerifiedUser) {
+      // It is a public user. Mute by default.
+      return false;
+    } else {
+      // It is a verified user. Check localStorage first, otherwise default to true
+      const saved = localStorage.getItem('agt_audio_enabled');
+      return saved === null ? true : saved === 'true';
+    }
   });
+
+  const toggleAudioEnabled = () => {
+    const nextVal = !audioEnabled;
+    setAudioEnabled(nextVal);
+    setCookie("agt_audio_enabled_pref", String(nextVal), 365);
+  };
   
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -1653,6 +1683,8 @@ export default function App() {
     setOmitPublic(false);
     
     deleteCookie("agt_verify_info");
+    deleteCookie("agt_audio_enabled_pref");
+    setAudioEnabled(false);
     
     // Verify deletion
     const savedCookie = getCookie("agt_verify_info");
@@ -2205,11 +2237,14 @@ export default function App() {
           activeCols.map((col, cIdx) => {
             const rawVal = record[col.name];
             const val = getDisplayValue(rawVal, col.rawIndex);
+            const valStr = String(val || '').trim();
+            const isUrl = valStr.toLowerCase().startsWith('http') || String(rawVal || '').toLowerCase().startsWith('http');
             
-            if (String(rawVal || '').startsWith('http')) {
-              urlMap.set(`${rIdx}-${cIdx}`, String(rawVal));
-              const isTargetCol = [89, 90, 91, 92, 115, 116, 117, 118].includes(col.rawIndex);
-              return isTargetCol ? 'LINK' : val;
+            if (isUrl) {
+              const actualUrl = valStr.toLowerCase().startsWith('http') ? valStr : String(rawVal || '').trim();
+              urlMap.set(`${rIdx}-${cIdx}`, actualUrl);
+              const isTargetCol = [88, 89, 90, 91, 92, 114, 115, 116, 117, 118].includes(col.rawIndex);
+              return isTargetCol ? 'LINK' : valStr;
             }
             return val || '-';
           })
@@ -2767,7 +2802,7 @@ export default function App() {
                     </div>
                     <button 
                       type="button"
-                      onClick={() => setAudioEnabled(!audioEnabled)}
+                      onClick={toggleAudioEnabled}
                       className="px-6 py-3 bg-[#E25530] text-white border-2 border-[#FF0500] hover:bg-[#E25530]/80 rounded-xl text-[10px] uppercase tracking-widest font-black transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(255,5,0,0.15)]"
                     >
                       {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -3262,7 +3297,7 @@ export default function App() {
                                     const val = getDisplayValue(record[col.name], col.rawIndex);
                                     const isUrl = String(val).toLowerCase().startsWith("http");
                                     if (isUrl) {
-                                      const isTargetCol = [89, 90, 91, 92, 115, 116, 117, 118].includes(col.rawIndex);
+                                      const isTargetCol = [88, 89, 90, 91, 92, 114, 115, 116, 117, 118].includes(col.rawIndex);
                                       return (
                                         <a 
                                           href={val} 
@@ -3383,9 +3418,6 @@ export default function App() {
                           )}
                           <span className="text-[9px] uppercase tracking-widest text-[#FFB451] font-bold">{t("Ledger Integrity: Verified")}</span>
                         </div>
-                        <span className="text-[9px] font-mono text-[#FFB451] uppercase tracking-widest hidden md:inline">
-                          {t("Index Reference:")} {Math.random().toString(16).substring(2, 8).toUpperCase()}
-                        </span>
                       </div>
                     </div>
                   </motion.section>
