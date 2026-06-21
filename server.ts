@@ -7,6 +7,18 @@ async function startServer() {
   const PORT = 3000;
 
   // Expose local file assets directly
+  app.get(["/NMSFuturaProBook_Kerned.ttf", "/src/NMSFuturaProBook_Kerned.ttf"], (req, res) => {
+    res.sendFile(path.join(process.cwd(), "src/NMSFuturaProBook_Kerned.ttf"));
+  });
+
+  app.get(["/AGT Anthem (Instrumental).mp3", "/src/AGT Anthem (Instrumental).mp3"], (req, res) => {
+    res.sendFile(path.join(process.cwd(), "src/AGT Anthem (Instrumental).mp3"));
+  });
+
+  app.get(["/planets-icon.png", "/src/planets-icon.png"], (req, res) => {
+    res.sendFile(path.join(process.cwd(), "src/planets-icon.png"));
+  });
+
   app.get(["/geonms-font.ttf", "/src/geonms-font.ttf"], (req, res) => {
     res.sendFile(path.join(process.cwd(), "geonms-font.ttf"));
   });
