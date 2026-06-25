@@ -26,7 +26,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
-  ShieldCheck
+  ShieldCheck,
+  Bug
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { jsPDF } from 'jspdf';
@@ -1060,6 +1061,99 @@ const deleteCookie = (name: string) => {
   document.cookie = name + "=; expires=Thu, 01 Jan 1700 00:00:00 UTC; path=/;SameSite=Lax;Secure";
 };
 
+const formatCacheDate = (dateStr: string | null): { date: string; time: string } => {
+  if (!dateStr) return { date: '', time: '' };
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { date: '', time: '' };
+    
+    // dd-MMM-YYYY format
+    const day = String(d.getDate()).padStart(2, '0');
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    
+    // HH:MM format
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    
+    return {
+      date: `${day}-${month}-${year}`,
+      time: `${hours}:${minutes}`
+    };
+  } catch (e) {
+    return { date: '', time: '' };
+  }
+};
+
+const DB_NAME = 'agt_galactic_archives_cache';
+const STORE_NAME = 'cache_store';
+const CACHE_KEY = 'csv_data';
+
+const initDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+};
+
+const saveCacheToIndexedDB = async (csvText: string): Promise<void> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(csvText, CACHE_KEY);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('IndexedDB save failed:', e);
+  }
+};
+
+const getCacheFromIndexedDB = async (): Promise<string | null> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(CACHE_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('IndexedDB get failed:', e);
+    return null;
+  }
+};
+
+const clearCacheFromIndexedDB = async (): Promise<void> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(CACHE_KEY);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('IndexedDB clear failed:', e);
+  }
+};
+
 export default function App() {
   const [language, setLanguage] = useState<string>(() => {
     return localStorage.getItem('agt_language') || 'en';
@@ -1134,13 +1228,46 @@ export default function App() {
     setCookie("agt_audio_enabled_pref", String(nextVal), 365);
   };
   
+  const [isUsingCache, setIsUsingCache] = useState<boolean>(false);
+  const [cacheTimestamp, setCacheTimestamp] = useState<string | null>(() => {
+    return localStorage.getItem('agt_cache_timestamp');
+  });
+
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Initial fetch
   useEffect(() => {
-    if (sheetUrl) {
-      fetchData();
-    }
+    const initFetch = async () => {
+      if (!sheetUrl) return;
+      
+      setLoading(true);
+      setProgressMessage("Syncing Galactic Archives");
+      setShowProgressOverlay(true);
+      
+      try {
+        const cachedText = await getCacheFromIndexedDB();
+        if (cachedText) {
+          const delimiter = sheetUrl.includes('output=tsv') ? '\t' : undefined;
+          const success = await parseAndLoadCsv(cachedText, true, delimiter);
+          if (success) {
+            setLoading(false);
+            setShowProgressOverlay(false);
+            return;
+          }
+        }
+        
+        // If cache wasn't found or failed to parse, fallback to live fetchData
+        await fetchData();
+      } catch (e) {
+        console.error('Error on initial cache load, falling back to fetch:', e);
+        await fetchData();
+      } finally {
+        setLoading(false);
+        setShowProgressOverlay(false);
+      }
+    };
+    
+    initFetch();
   }, []);
 
   // Background Audio Management
@@ -1707,45 +1834,22 @@ export default function App() {
     }
   };
 
-  const fetchData = async (overrides?: { searchKey?: string; galaxy?: string; region?: string; category?: PlanetCategory; biome?: string }) => {
-    if (!sheetUrl) {
-      setError('Please provide a Google Sheet CSV URL in settings.');
-      setShowSettings(true);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setMatchedRecords([]);
-    setProgressMessage("Syncing Galactic Archives");
-    setShowProgressOverlay(true);
-
-    try {
-      // Handle the case where the user might paste a regular sheet URL instead of a pub link
-      let fetchUrl = sheetUrl;
-      if (sheetUrl.includes('docs.google.com/spreadsheets/') && !sheetUrl.includes('pub?')) {
-        // Try to convert regular URL to CSV export if possible, 
-        // though "Publish to Web" is the official way.
-        if (sheetUrl.includes('/edit')) {
-          fetchUrl = sheetUrl.replace(/\/edit.*$/, '/export?format=csv');
-        }
-      }
-
-      const response = await fetch(fetchUrl);
-      if (!response.ok) throw new Error('Failed to fetch sheet data. Is it published to the web?');
-      
-      const csvText = await response.text();
-      
+  const parseAndLoadCsv = (
+    csvText: string, 
+    isFromCache: boolean, 
+    delimiter?: string, 
+    overrides?: { searchKey?: string; galaxy?: string; region?: string; category?: PlanetCategory; biome?: string }
+  ): Promise<boolean> => {
+    return new Promise((resolve) => {
       Papa.parse(csvText, {
         header: false,
         skipEmptyLines: true,
-        delimiter: fetchUrl.includes('output=tsv') ? '\t' : undefined,
-        complete: (results) => {
+        delimiter: delimiter,
+        complete: async (results) => {
           const rawRows = results.data as string[][];
           if (rawRows.length < 2) {
             setError('The source sheet data is insufficient (need at least 2 rows).');
-            setLoading(false);
-            setShowProgressOverlay(false);
+            resolve(false);
             return;
           }
 
@@ -1865,17 +1969,60 @@ export default function App() {
           const currentB = overrides?.biome ?? selectedBiome;
 
           findRecord(processedData, filteredColumns, currentS, currentG, currentR, currentC, currentB, discovererFilter, surveyorFilter);
-          setLoading(false);
-          setShowProgressOverlay(false);
+          
+          setIsUsingCache(isFromCache);
+          
+          if (!isFromCache) {
+            const nowIso = new Date().toISOString();
+            await saveCacheToIndexedDB(csvText);
+            localStorage.setItem('agt_cache_timestamp', nowIso);
+            setCacheTimestamp(nowIso);
+          }
+          
+          resolve(true);
         },
         error: (err: any) => {
           setError(`Parsing error: ${err.message}`);
-          setLoading(false);
-          setShowProgressOverlay(false);
+          resolve(false);
         }
       });
+    });
+  };
+
+  const fetchData = async (overrides?: { searchKey?: string; galaxy?: string; region?: string; category?: PlanetCategory; biome?: string }) => {
+    if (!sheetUrl) {
+      setError('Please provide a Google Sheet CSV URL in settings.');
+      setShowSettings(true);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setMatchedRecords([]);
+    setProgressMessage("Syncing Galactic Archives");
+    setShowProgressOverlay(true);
+
+    try {
+      // Handle the case where the user might paste a regular sheet URL instead of a pub link
+      let fetchUrl = sheetUrl;
+      if (sheetUrl.includes('docs.google.com/spreadsheets/') && !sheetUrl.includes('pub?')) {
+        // Try to convert regular URL to CSV export if possible, 
+        // though "Publish to Web" is the official way.
+        if (sheetUrl.includes('/edit')) {
+          fetchUrl = sheetUrl.replace(/\/edit.*$/, '/export?format=csv');
+        }
+      }
+
+      const response = await fetch(fetchUrl);
+      if (!response.ok) throw new Error('Failed to fetch sheet data. Is it published to the web?');
+      
+      const csvText = await response.text();
+      
+      const delimiter = fetchUrl.includes('output=tsv') ? '\t' : undefined;
+      await parseAndLoadCsv(csvText, false, delimiter, overrides);
     } catch (err: any) {
       setError(err.message || 'Operation failed');
+    } finally {
       setLoading(false);
       setShowProgressOverlay(false);
     }
@@ -2427,14 +2574,24 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-6">
-            <div className="hidden md:block text-[9px] text-[#FFB451]/40 tracking-widest font-mono">
-              {t("STATUS:")} <span className={
-                loading ? 'text-yellow-500' :
-                sheetUrl ? 'text-emerald-500' : 
-                'text-[#FF0500]'
-              }>
-                {loading ? t("SYNCING") : sheetUrl ? t("CONNECTED") : t("DISCONNECTED")}
-              </span>
+            <div className="hidden md:flex flex-col items-end text-[9px] text-[#FFB451]/40 tracking-widest font-mono text-right justify-center">
+              <div>
+                {t("STATUS:")}{' '}
+                {loading ? (
+                  <span className="text-yellow-500">{t("SYNCING")}</span>
+                ) : cacheTimestamp ? (
+                  <span className="text-blue-500 font-bold uppercase">{t("Cached")}</span>
+                ) : sheetUrl ? (
+                  <span className="text-emerald-500">{t("CONNECTED")}</span>
+                ) : (
+                  <span className="text-[#FF0500]">{t("DISCONNECTED")}</span>
+                )}
+              </div>
+              {cacheTimestamp && !loading && (
+                <div className="text-[8px] text-[#FFB451]/60 lowercase mt-0.5 tracking-wider">
+                  {formatCacheDate(cacheTimestamp).date} {formatCacheDate(cacheTimestamp).time}
+                </div>
+              )}
             </div>
 
             {verifiedName && verifiedId ? (
@@ -2458,6 +2615,18 @@ export default function App() {
                 Public User
               </div>
             )}
+
+            <button 
+              onClick={() => window.open("https://www.nms-agt.com/support", "_blank")}
+              className="p-1 hover:opacity-80 transition-all duration-300 relative group cursor-pointer"
+              title="Contact Support"
+              id="bug-support-btn"
+            >
+              <Bug className="w-7 h-7 text-[#FF0500] transition-transform duration-300 group-hover:scale-110" />
+              <div className="absolute right-0 top-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[#181818] border border-[#FF0500]/50 text-[#FFB451] text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded shadow-[0_0_15px_rgba(255,5,0,0.3)] z-50 whitespace-nowrap">
+                Contact Support
+              </div>
+            </button>
 
             <button 
               onClick={() => setShowSettings(!showSettings)}
@@ -2828,6 +2997,11 @@ export default function App() {
                     >
                       {t("Re-Sync Planet DB")}
                     </button>
+                    {cacheTimestamp && (
+                      <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest text-center mt-1 font-mono">
+                        Last Cache: {formatCacheDate(cacheTimestamp).date} {formatCacheDate(cacheTimestamp).time}
+                      </p>
+                    )}
                     <p className="text-[9px] text-[#FFB451]/70 uppercase tracking-widest pr-2 leading-relaxed">
                       {t("* Re-sync of planet DB may take up 5-10 minutes")}
                     </p>
@@ -3411,6 +3585,8 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           {loading ? (
                             <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.8)] animate-pulse" />
+                          ) : isUsingCache ? (
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse" />
                           ) : data && data.length > 0 ? (
                             <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />
                           ) : (
