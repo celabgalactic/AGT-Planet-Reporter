@@ -1232,6 +1232,7 @@ export default function App() {
   const [cacheTimestamp, setCacheTimestamp] = useState<string | null>(() => {
     return localStorage.getItem('agt_cache_timestamp');
   });
+  const [isBugSpinning, setIsBugSpinning] = useState<boolean>(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -2568,12 +2569,19 @@ export default function App() {
               }}
             />
             <div className="flex flex-col">
-              <h1 className="font-bold text-xs tracking-[0.2em] uppercase text-[#FFB451]">{t("Alliance of Galactic Travellers")}</h1>
-              <span className="text-[9px] text-[#FFB451] uppercase tracking-[0.3em] font-bold">{t("AGT Planet Report Tool")}</span>
+              <h1 className="font-bold text-xs tracking-[0.2em] uppercase text-[#FFB451]">
+                <span className="hidden md:inline">{t("Alliance of Galactic Travellers")}</span>
+                <span className="md:hidden">AGT</span>
+              </h1>
+              <span className="text-[9px] text-[#FFB451] uppercase tracking-[0.3em] font-bold">
+                <span className="hidden md:inline">{t("AGT Planet Report Tool")}</span>
+                <span className="md:hidden">Planet Report</span>
+              </span>
             </div>
           </div>
           
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 md:gap-6">
+            {/* Status Indicator for Desktop Devices */}
             <div className="hidden md:flex flex-col items-end text-[9px] text-[#FFB451]/40 tracking-widest font-mono text-right justify-center">
               <div>
                 {t("STATUS:")}{' '}
@@ -2594,13 +2602,48 @@ export default function App() {
               )}
             </div>
 
+            {/* Status Dot for Mobile Devices */}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="md:hidden flex items-center justify-center p-1.5 cursor-pointer select-none shrink-0"
+              title="Sync Status (Click to open Settings)"
+            >
+              <span className="relative flex h-3.5 w-3.5">
+                <span 
+                  className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" 
+                  style={{
+                    backgroundColor: loading 
+                      ? 'rgb(234, 179, 8)' 
+                      : cacheTimestamp 
+                      ? 'rgb(59, 130, 246)' 
+                      : sheetUrl 
+                      ? 'rgb(16, 185, 129)' 
+                      : 'rgb(255, 5, 0)'
+                  }}
+                />
+                <span 
+                  className="relative inline-flex rounded-full h-3.5 w-3.5 shadow-[0_0_8px_rgba(0,0,0,0.5)]" 
+                  style={{
+                    backgroundColor: loading 
+                      ? 'rgb(234, 179, 8)' 
+                      : cacheTimestamp 
+                      ? 'rgb(59, 130, 246)' 
+                      : sheetUrl 
+                      ? 'rgb(16, 185, 129)' 
+                      : 'rgb(255, 5, 0)'
+                  }}
+                />
+              </span>
+            </button>
+
+            {/* User Identity for Desktop Devices */}
             {verifiedName && verifiedId ? (
               <div 
                 style={{
                   borderColor: getSecurityColor(securityLevel),
                   color: getSecurityColor(securityLevel),
                 }}
-                className="px-2.5 py-1 border-2 rounded-xl text-[10px] font-black uppercase tracking-wider font-mono bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.5)] flex items-center justify-center shrink-0"
+                className="hidden md:flex px-2.5 py-1 border-2 rounded-xl text-[10px] font-black uppercase tracking-wider font-mono bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.5)] items-center justify-center shrink-0"
               >
                 {verifiedName.slice(0, 12)}
               </div>
@@ -2610,19 +2653,34 @@ export default function App() {
                   borderColor: 'rgb(42, 255, 0)',
                   color: 'rgb(42, 255, 0)',
                 }}
-                className="px-2.5 py-1 border-2 rounded-xl text-[10px] font-black uppercase tracking-wider font-mono bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.5)] flex items-center justify-center shrink-0"
+                className="hidden md:flex px-2.5 py-1 border-2 rounded-xl text-[10px] font-black uppercase tracking-wider font-mono bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.5)] items-center justify-center shrink-0"
               >
                 Public User
               </div>
             )}
 
+            {/* User Identity for Mobile Devices */}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="md:hidden w-6 h-6 border-2 rounded-md bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.4)] shrink-0 flex items-center justify-center cursor-pointer hover:opacity-80 transition-all duration-300"
+              style={{
+                borderColor: verifiedName && verifiedId ? getSecurityColor(securityLevel) : 'rgb(42, 255, 0)',
+                backgroundColor: verifiedName && verifiedId ? `${getSecurityColor(securityLevel)}20` : 'rgba(42, 255, 0, 0.1)',
+              }}
+              title={verifiedName && verifiedId ? `User: ${verifiedName} (${securityLevelLabel})` : "Public User"}
+            />
+
             <button 
-              onClick={() => window.open("https://www.nms-agt.com/support", "_blank")}
+              onClick={() => {
+                setIsBugSpinning(true);
+                setTimeout(() => setIsBugSpinning(false), 1000);
+                window.open("https://www.nms-agt.com/support", "_blank");
+              }}
               className="p-1 hover:opacity-80 transition-all duration-300 relative group cursor-pointer"
               title="Contact Support"
               id="bug-support-btn"
             >
-              <Bug className="w-7 h-7 text-[#FF0500] transition-transform duration-300 group-hover:scale-110" />
+              <Bug className={`w-7 h-7 text-[#FF0500] transition-transform duration-1000 ease-in-out group-hover:rotate-[360deg] ${isBugSpinning ? 'animate-spin' : ''}`} />
               <div className="absolute right-0 top-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[#181818] border border-[#FF0500]/50 text-[#FFB451] text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded shadow-[0_0_15px_rgba(255,5,0,0.3)] z-50 whitespace-nowrap">
                 Contact Support
               </div>
