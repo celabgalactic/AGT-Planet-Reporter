@@ -27,7 +27,9 @@ import {
   ArrowDown,
   ArrowUpDown,
   ShieldCheck,
-  Bug
+  Bug,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { jsPDF } from 'jspdf';
@@ -1061,6 +1063,40 @@ const deleteCookie = (name: string) => {
   document.cookie = name + "=; expires=Thu, 01 Jan 1700 00:00:00 UTC; path=/;SameSite=Lax;Secure";
 };
 
+const encryptXOR = (text: string): string => {
+  let result = "";
+  for (let i = 0; i < text.length; i++) {
+    const charCode = text.charCodeAt(i) ^ 969;
+    result += charCode.toString(16).padStart(4, '0');
+  }
+  return result;
+};
+
+const decryptXOR = (hexText: string): string => {
+  let result = "";
+  for (let i = 0; i < hexText.length; i += 4) {
+    const hex = hexText.substring(i, i + 4);
+    const charCode = parseInt(hex, 16) ^ 969;
+    result += String.fromCharCode(charCode);
+  }
+  return result;
+};
+
+const getDecryptedCookieInfo = (cookieName: string) => {
+  const cookieVal = getCookie(cookieName);
+  if (!cookieVal) return null;
+  try {
+    const decrypted = decryptXOR(cookieVal);
+    return JSON.parse(decrypted);
+  } catch (_) {
+    try {
+      return JSON.parse(cookieVal);
+    } catch (_) {
+      return null;
+    }
+  }
+};
+
 const formatCacheDate = (dateStr: string | null): { date: string; time: string } => {
   if (!dateStr) return { date: '', time: '' };
   try {
@@ -1392,70 +1428,40 @@ export default function App() {
 
   // Verified ID state variables
   const [verifiedName, setVerifiedName] = useState<string>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return parsed.name || "";
-      } catch (_) {}
-    }
-    return "";
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return info?.name || "";
   });
 
-  const [verifiedId, setVerifiedId] = useState<string>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return parsed.id || "";
-      } catch (_) {}
-    }
-    return "";
+  const [verifiedPassword, setVerifiedPassword] = useState<string>(() => {
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return info?.password || info?.id || "";
   });
+
+  const verifiedId = verifiedPassword;
 
   const [securityLevelLabel, setSecurityLevelLabel] = useState<string>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return parsed.securityLevel || "Public";
-      } catch (_) {}
-    }
-    return "Public";
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return info?.securityLevel || "Public";
   });
 
   const [securityLevel, setSecurityLevel] = useState<number>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return getSecurityLevelForValue(parsed.securityLevel || "Public");
-      } catch (_) {}
-    }
-    return 0; // Default to Public (0)
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return getSecurityLevelForValue(info?.securityLevel || "Public");
   });
 
   const [travellerName, setTravellerName] = useState<string>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return parsed.name || "";
-      } catch (_) {}
-    }
-    return "";
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return info?.name || "";
   });
 
-  const [travellerId, setTravellerId] = useState<string>(() => {
-    const cookieVal = getCookie("agt_verify_info");
-    if (cookieVal) {
-      try {
-        const parsed = JSON.parse(cookieVal);
-        return parsed.id || "";
-      } catch (_) {}
-    }
-    return "";
+  const [travellerPassword, setTravellerPassword] = useState<string>(() => {
+    const info = getDecryptedCookieInfo("agt_verify_info");
+    return info?.password || info?.id || "";
   });
+
+  const travellerId = travellerPassword;
+
+  const [showPassword, setShowPassword] = useState<boolean>(false);
 
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyError, setVerifyError] = useState<ReactNode | null>(null);
@@ -1646,8 +1652,8 @@ export default function App() {
   }, [sheetUrl]);
 
   const verifyTravellerID = async () => {
-    if (!travellerName.trim() || !travellerId.trim()) {
-      setVerifyError("Please enter both Traveller Name and AGT Traveller ID.");
+    if (!travellerName.trim() || !travellerPassword.trim()) {
+      setVerifyError("Please enter both Traveller Name and Password.");
       return;
     }
     
@@ -1655,13 +1661,6 @@ export default function App() {
     const alphaNumRegex = /^[A-Za-z0-9\s]{1,42}$/;
     if (!alphaNumRegex.test(travellerName)) {
       setVerifyError("Traveller Name must be alphanumeric and up to 42 characters.");
-      return;
-    }
-    
-    // Alphanumeric format ########-????-#### (case-insensitive for convenience)
-    const idRegex = /^[0-9]{8}-[0-9A-Za-z]{4}-[0-9]{4}$/;
-    if (!idRegex.test(travellerId)) {
-      setVerifyError("AGT Traveller ID must follow the ########-????-#### format (e.g., 37411005-ABC9-1234).");
       return;
     }
     
@@ -1693,7 +1692,7 @@ export default function App() {
       if (!matchedRow) {
         setVerifyError(
           <>
-            {"Traveller Name and ID and does not match, Please consult "}
+            {"Traveller Name and password do not match, Please consult "}
             <a
               href="https://www.nms-agt.com/support/traveller-id"
               target="_blank"
@@ -1712,13 +1711,13 @@ export default function App() {
         return;
       }
       
-      const rowIdEncoded = String(matchedRow[1] || '').trim();
-      const decodedId = decodeXOR(rowIdEncoded).trim();
+      const rowPassEncoded = String(matchedRow[3] || '').trim();
+      const decodedPassword = decodeXOR(rowPassEncoded).trim();
       
-      if (decodedId.toLowerCase() !== travellerId.trim().toLowerCase()) {
+      if (decodedPassword !== travellerPassword.trim()) {
         setVerifyError(
           <>
-            {"Traveller Name and ID and does not match, Please consult "}
+            {"Traveller Name and password do not match, Please consult "}
             <a
               href="https://www.nms-agt.com/support/traveller-id"
               target="_blank"
@@ -1743,19 +1742,21 @@ export default function App() {
       
       const infoToSave = {
         name: travellerName.trim(),
-        id: travellerId.trim(),
+        password: travellerPassword.trim(),
         securityLevel: levelLabel
       };
       
-      setCookie("agt_verify_info", JSON.stringify(infoToSave), 365);
+      const encryptedValue = encryptXOR(JSON.stringify(infoToSave));
+      setCookie("agt_verify_info", encryptedValue, 365);
       
       // Verify saved cookie
       const savedCookie = getCookie("agt_verify_info");
       let saveError = false;
       if (savedCookie) {
         try {
-          const parsed = JSON.parse(savedCookie);
-          if (parsed.name !== travellerName.trim() || parsed.id !== travellerId.trim()) {
+          const decrypted = decryptXOR(savedCookie);
+          const parsed = JSON.parse(decrypted);
+          if (parsed.name !== travellerName.trim() || parsed.password !== travellerPassword.trim()) {
             saveError = true;
           }
         } catch (_) {
@@ -1772,7 +1773,7 @@ export default function App() {
         });
       } else {
         setVerifiedName(travellerName.trim());
-        setVerifiedId(travellerId.trim());
+        setVerifiedPassword(travellerPassword.trim());
         setSecurityLevel(numLevel);
         setSecurityLevelLabel(levelLabel);
         
@@ -1801,9 +1802,9 @@ export default function App() {
 
   const clearTravellerID = () => {
     setTravellerName("");
-    setTravellerId("");
+    setTravellerPassword("");
     setVerifiedName("");
-    setVerifiedId("");
+    setVerifiedPassword("");
     setSecurityLevel(0);
     setSecurityLevelLabel("Public");
     setVerifyError(null);
@@ -2937,18 +2938,32 @@ export default function App() {
                       />
                     </div>
 
-                    {/* AGT Traveller ID field */}
+                    {/* Password field */}
                     <div className="space-y-1">
                       <label className="block text-[10px] uppercase font-bold tracking-widest text-[#FFB451]/80">
-                        {t("AGT Traveller ID")} (########-????-####)
+                        {t("Password")}
                       </label>
-                      <input
-                        type="text"
-                        value={travellerId}
-                        onChange={(e) => setTravellerId(e.target.value)}
-                        placeholder="e.g. 37411005-ABC9-1234"
-                        className="block w-full px-3 py-2 bg-[#1d1d1d] border-2 border-[#FF0500]/30 rounded-xl focus:outline-none focus:border-[#FF0500]/80 transition-all text-[#FFB451]"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          value={travellerPassword}
+                          maxLength={5}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^A-Za-z0-9]/g, "");
+                            setTravellerPassword(val);
+                          }}
+                          placeholder={t("Enter Password")}
+                          className="block w-full pr-10 pl-3 py-2 bg-[#1d1d1d] border-2 border-[#FF0500]/30 rounded-xl focus:outline-none focus:border-[#FF0500]/80 transition-all text-[#FFB451]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#FFB451]/60 hover:text-[#FFB451] transition-colors cursor-pointer select-none"
+                          title={showPassword ? t("Hide Password") : t("Show Password")}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Security Clearance Status Badge after AGT Traveller ID field, right-justified */}
