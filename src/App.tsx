@@ -34,6 +34,7 @@ import {
 import Papa from 'papaparse';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip } from 'recharts';
 import { CIVILIZATIONS, GALAXIES } from './constants';
 import { Autocomplete } from './components/Autocomplete';
 
@@ -1476,6 +1477,41 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [matchedRecords, setMatchedRecords] = useState<any[]>([]);
   const [omittedSecurityCount, setOmittedSecurityCount] = useState(0);
+
+  const [chartGroupBy, setChartGroupBy] = useState<'galaxy' | 'civilization'>('galaxy');
+
+  const chartData = useMemo(() => {
+    if (matchedRecords.length === 0) return [];
+    const counts: Record<string, number> = {};
+    matchedRecords.forEach(r => {
+      let val = '';
+      if (chartGroupBy === 'galaxy') {
+        const col = columns.find(c => c.rawIndex === 0);
+        val = col ? r[col.name] : (r._raw?.[0] || '');
+      } else {
+        const col = columns.find(c => c.rawIndex === 42);
+        val = col ? r[col.name] : (r._raw?.[42] || '');
+      }
+      val = String(val).trim();
+      if (!val || val.toLowerCase() === 'null' || val === '#N/A' || val === '#n/a') {
+        val = 'Unknown';
+      }
+      counts[val] = (counts[val] || 0) + 1;
+    });
+
+    const sorted = Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    if (sorted.length > 12) {
+      const top = sorted.slice(0, 11);
+      const rest = sorted.slice(11);
+      const restCount = rest.reduce((acc, curr) => acc + curr.count, 0);
+      top.push({ name: 'Others', count: restCount });
+      return top;
+    }
+    return sorted;
+  }, [matchedRecords, chartGroupBy, columns]);
 
   const [sheetHeaders, setSheetHeaders] = useState<string[]>(() => {
     try {
@@ -3493,6 +3529,101 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Dynamic Bar Chart above the search results */}
+                    <div className="p-6 border-b border-[#FF0500]/20 bg-black/40">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div className="space-y-1">
+                          <h4 className="text-xs uppercase tracking-[0.2em] font-black text-[#FFB451]">
+                            {chartGroupBy === 'galaxy' ? t("Record Distribution by Galaxy") : t("Record Distribution by Civilization")}
+                          </h4>
+                          <p className="text-[9px] text-[#FFB451]/60 uppercase tracking-widest font-mono">
+                            {t("Showing top matches in currently filtered archive")}
+                          </p>
+                        </div>
+                        
+                        {/* Toggle Controls */}
+                        <div className="flex items-center gap-1.5 p-1 bg-black/50 border border-[#FF0500]/30 rounded-xl self-start sm:self-center shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setChartGroupBy('galaxy')}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all cursor-pointer ${
+                              chartGroupBy === 'galaxy'
+                                ? 'bg-[#E25530] text-white font-extrabold shadow-[0_0_10px_rgba(226,85,48,0.3)]'
+                                : 'text-[#FFB451]/60 hover:text-[#FFB451]'
+                            }`}
+                          >
+                            {t("Galaxy")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setChartGroupBy('civilization')}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest transition-all cursor-pointer ${
+                              chartGroupBy === 'civilization'
+                                ? 'bg-[#E25530] text-white font-extrabold shadow-[0_0_10px_rgba(226,85,48,0.3)]'
+                                : 'text-[#FFB451]/60 hover:text-[#FFB451]'
+                            }`}
+                          >
+                            {t("Civilization")}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="h-[200px] w-full font-mono text-[9px] select-none">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={chartData}
+                            margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 5, 0, 0.1)" vertical={false} />
+                            <XAxis 
+                              dataKey="name" 
+                              stroke="rgba(255, 180, 81, 0.4)" 
+                              tick={{ fill: 'rgba(255, 180, 81, 0.6)', fontSize: 8 }}
+                              axisLine={{ stroke: 'rgba(255, 5, 0, 0.2)' }}
+                              tickLine={false}
+                            />
+                            <YAxis 
+                              stroke="rgba(255, 180, 81, 0.4)"
+                              tick={{ fill: 'rgba(255, 180, 81, 0.6)', fontSize: 8 }}
+                              axisLine={{ stroke: 'rgba(255, 5, 0, 0.2)' }}
+                              tickLine={false}
+                              allowDecimals={false}
+                            />
+                            <RechartsTooltip
+                              content={({ active, payload }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="bg-[#181818] border border-[#FF0500] p-2.5 rounded shadow-[0_0_15px_rgba(255,5,0,0.2)]">
+                                      <p className="text-[#FFB451] font-bold text-[10px] mb-1">{payload[0].payload.name}</p>
+                                      <p className="text-white text-[9px] font-mono uppercase tracking-wider">
+                                        {t("Count")}: <span className="font-extrabold text-[#E25530]">{payload[0].value}</span>
+                                      </p>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                              cursor={{ fill: 'rgba(255, 5, 0, 0.05)' }}
+                            />
+                            <Bar 
+                              dataKey="count" 
+                              fill="#FFB451" 
+                              radius={[4, 4, 0, 0]}
+                              maxBarSize={45}
+                            >
+                              {chartData.map((entry, index) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={entry.name === 'Others' ? 'rgba(255, 180, 81, 0.4)' : '#FFB451'} 
+                                  className="cursor-pointer hover:fill-[#E25530] transition-colors duration-300"
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
                     {/* Top Scrollbar synchronized with the bottom scrollbar */}
                     <div 
                       ref={topScrollRef} 
@@ -3537,9 +3668,15 @@ export default function App() {
                         </thead>
                         <tbody className="divide-y divide-[#FF0500]/10">
                           {paginatedRecords.map((record, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-[#FF0500]/5 transition-colors group">
+                            <tr 
+                              key={rIdx} 
+                              className="relative transition-all duration-300 group hover:bg-[#FFB451]/10 hover:shadow-[0_0_15px_rgba(255,180,81,0.25)] border-l-2 border-transparent hover:border-[#FFB451] cursor-pointer"
+                            >
                               {columns.filter(col => col.enabled).map((col, cIdx) => (
-                                <td key={cIdx} className="py-0.5 px-3 text-[10px] text-[#FFB451] font-mono whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
+                                <td 
+                                  key={cIdx} 
+                                  className="py-0.5 px-3 text-[10px] text-[#FFB451] font-mono whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] group-hover:text-white transition-colors duration-300"
+                                >
                                   {(() => {
                                     const val = getDisplayValue(record[col.name], col.rawIndex);
                                     const isUrl = String(val).toLowerCase().startsWith("http");
